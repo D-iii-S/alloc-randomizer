@@ -23,16 +23,10 @@ limitations under the License.
 #include <unistd.h>
 #include <pthread.h>
 
-#include <iostream>
-
-using namespace std;
-
 
 //---------------------------------------------------------------
 // Utility Functions
 
-
-#define LOG(x) { cerr << "[AR] " << x << endl; }
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
@@ -215,8 +209,6 @@ static void initialize (void)
   __sync_synchronize ();
   initializing = false;
   __sync_synchronize ();
-
-  LOG ("Allocations will have " << random_bits << " low bits randomized and " << align_bits << " low bits masked." );
 }
 
 
