@@ -1,0 +1,13 @@
+// What we know ...
+//
+// man memalign: The glibc malloc(3) always returns 8-byte aligned memory addresses.
+// observation: The glibc malloc(3) always returns 16-byte aligned memory addresses.
+// C standard: The pointer is suitably aligned to allow access to any data type.
+
+// What we do ...
+//
+// We want to make malloc use random offset within cache line or memory page.
+// We therefore generate the random offset and then allocate more.
+// To be able to free the block, we allocate one extra pointer.
+// It is stored just before the returned pointer and
+// contains the true address of the block.

@@ -1,0 +1,27 @@
+RANDOMIZED_BITS="6 12"
+OFFSET_ALIGN="1 2 8 16"
+
+BENCHMARK="sysbench --num-threads=4 --test=memory run"
+
+for (( I = 0 ; I < 1024 ; I ++ ))
+do
+  echo $I
+  OUTPUT="sysbench-vanilla/result-${I:?}.txt"
+  if [[ ! -f ${OUTPUT:?} ]]
+  then
+    mkdir -p $(dirname ${OUTPUT:?})
+    ${BENCHMARK:?} > ${OUTPUT:?}
+  fi
+  for RB in ${RANDOMIZED_BITS:?}
+  do
+    for OA in ${OFFSET_ALIGN:?}
+    do
+      OUTPUT="sysbench-randomized-${RB:?}-${OA:?}/result-${I:?}.txt"
+      if [[ ! -f ${OUTPUT:?} ]]
+      then
+        mkdir -p $(dirname ${OUTPUT:?})
+        LD_PRELOAD=alloc-randomizer-${RB:?}-${OA:?}.so ${BENCHMARK:?} > ${OUTPUT:?}
+      fi
+    done
+  done
+done
