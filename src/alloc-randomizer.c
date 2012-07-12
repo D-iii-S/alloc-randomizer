@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 #include <dlfcn.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -36,8 +37,9 @@ using namespace std;
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
 
-#define BITS_TO_MASK(x) (~ ((1 << (x)) - 1))
-#define BITS_TO_SIZE(x) (1 << (x))
+#define BITS_TO_SIZE(x) (1u << (x))
+#define BITS_TO_MASK_IN(x) ((1u << (x)) - 1u)
+#define BITS_TO_MASK_OUT(x) (~ BITS_TO_MASK_IN(x))
 
 #define SPIN_LOCK(x) { while (!__sync_bool_compare_and_swap (&(x), false, true)) { }; }
 #define SPIN_UNLOCK(x) { (x) = false; __sync_synchronize (); }
@@ -51,21 +53,25 @@ using namespace std;
 /// Setting this too low increases space overhead.
 /// Setting this too high breaks alignment functionality.
 #define MALLOC_ALIGN_BITS 4
-#define MALLOC_ALIGN_MASK BITS_TO_MASK (MALLOC_ALIGN_BITS)
+#define MALLOC_ALIGN_MASK_OUT BITS_TO_MASK_OUT (MALLOC_ALIGN_BITS)
 
 
 //---------------------------------------------------------------
 // Random Generator
 
 
-static volatile unsigned int seed_value = 0;
+#define RAND_BITS 31
+#define RAND_SEED 1103515245u
+#define RAND_INC 12345u
+
+static volatile uint_fast32_t seed_value = 0;
 static volatile bool seed_lock = false;
 
-static inline unsigned int rand (int bits)
+static inline uint_fast32_t rand (int bits)
 {
   SPIN_LOCK (seed_lock);
   seed_value = 1103515245u * seed_value + 12345u;
-  register unsigned int result = seed_value >> (sizeof (unsigned int) * 8 - bits);
+  register uint_fast32_t result = (seed_value & BITS_TO_MASK_IN (RAND_BITS)) >> (RAND_BITS - bits);
   SPIN_UNLOCK (seed_lock);
   return (result);
 }
@@ -77,7 +83,8 @@ static inline unsigned int rand (int bits)
 
 /// Address alignment, expressed as number of bits.
 static volatile unsigned int align_bits = 0;
-static volatile unsigned int align_mask = BITS_TO_MASK (0);
+static volatile uintptr_t align_mask_in = BITS_TO_MASK_IN (0);
+static volatile uintptr_t align_mask_out = BITS_TO_MASK_OUT (0);
 /// Address randomization, expressed as number of bits.
 static volatile unsigned int random_bits = 0;
 
@@ -89,7 +96,8 @@ static volatile unsigned int random_bits = 0;
 static void set_align_bits (unsigned int ab)
 {
   align_bits = ab;
-  align_mask = BITS_TO_MASK (ab);
+  align_mask_in = BITS_TO_MASK_IN (ab);
+  align_mask_out = BITS_TO_MASK_OUT (ab);
 }
 
 
@@ -160,8 +168,8 @@ void intercept_functions ()
 /// Alignment of the backup heap.
 /// Pick any reasonable value and the code should adjust.
 #define BACKUP_ALIGN_BITS MALLOC_ALIGN_BITS
-#define BACKUP_ALIGN_MASK BITS_TO_MASK (BACKUP_ALIGN_BITS)
 #define BACKUP_ALIGN_SIZE BITS_TO_SIZE (BACKUP_ALIGN_BITS)
+#define BACKUP_ALIGN_MASK_OUT BITS_TO_MASK_OUT (BACKUP_ALIGN_BITS)
 
 static char backup_heap [BACKUP_SIZE] __attribute__ ((aligned (BACKUP_ALIGN_SIZE)));
 static char *backup_last = backup_heap;
@@ -212,15 +220,15 @@ static void initialize (void)
 }
 
 
-size_t calculate_reserve (unsigned int original_align_mask)
+size_t calculate_reserve (uintptr_t original_align_mask_out)
 {
   // One part of reserve space is due to alignment.
   // That is calculated as worst possible difference between original alignment and required alignment.
-  unsigned int align_offset = (~ align_mask) & original_align_mask;
+  size_t align_offset = align_mask_in & original_align_mask_out;
 
   // One part of reserve space is due to randomization.
   // That is calculated as random offset with alignment.
-  unsigned int random_offset = rand (random_bits) & align_mask;
+  size_t random_offset = rand (random_bits) & align_mask_out;
 
   // Minimum reserve is one pointer to original block start.
   size_t reserve = MAX (sizeof (void *), align_offset + random_offset);
@@ -240,7 +248,7 @@ extern "C" void *realloc (void *ptr, size_t size)
   if (backup_pointer (ptr)) _exit (1);
 
   // Allocate extra space, enough for header and random sized block.
-  unsigned int offset = calculate_reserve (MALLOC_ALIGN_MASK);
+  size_t offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
   size_t size_changed = size + offset;
   void **ptr_header = (void **) ptr - 1;
   void *ptr_original = (*ptr_header);
@@ -276,17 +284,17 @@ extern "C" void *malloc (size_t size)
 
   // Allocate extra space, enough for header and random sized block.
   // Some parameters depend on whether this is backup allocation.
-  unsigned int offset;
+  size_t offset;
   void *block_original;
   if (initializing)
   {
-    offset = calculate_reserve (BACKUP_ALIGN_MASK);
+    offset = calculate_reserve (BACKUP_ALIGN_MASK_OUT);
     size_t size_changed = size + offset;
     block_original = backup_malloc (size_changed);
   }
   else
   {
-    offset = calculate_reserve (MALLOC_ALIGN_MASK);
+    offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
     size_t size_changed = size + offset;
     block_original = (*original_malloc) (size_changed);
   }

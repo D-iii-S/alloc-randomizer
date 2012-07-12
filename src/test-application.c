@@ -49,6 +49,8 @@ struct global_fixture
 
 BOOST_AUTO_TEST_SUITE (calculate_reserve_test)
 
+#define ALIGN_MAX 16
+
 BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
 {
   // We do not care about randomness for now.
@@ -56,23 +58,25 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
 
   // If no alignment is required, no reserve should be needed regardless of original alignment.
   set_align_bits (0);
-  BOOST_CHECK_EQUAL (calculate_reserve (0), 0);
-  BOOST_CHECK_EQUAL (calculate_reserve (1), 0);
+  for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
+  {
+    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (oa)), sizeof (void *));
+  }
 
   // If some alignment is required and no original alignment is guaranteed,
   // reserve one byte smaller than the alignment block is needed.
-  for (int ab = 0 ; ab < 16 ; ab ++)
+  for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
   {
     set_align_bits (ab);
-    BOOST_CHECK_EQUAL (calculate_reserve (0), BITS_TO_SIZE (ab) - 1);
+    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (0)), MAX (sizeof (void *), BITS_TO_SIZE (ab) - 1));
   }
 
   // If some alignment is required and some original alignment is guaranteed,
   // reserve one original alignment block smaller than the alignment block is needed.
-  set_align_bits (16);
-  for (int oa = 0 ; oa < 16 ; oa ++)
+  set_align_bits (ALIGN_MAX);
+  for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
   {
-    BOOST_CHECK_EQUAL (calculate_reserve (oa), BITS_TO_SIZE (16) - BITS_TO_SIZE (oa));
+    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (oa)), MAX (sizeof (void *), BITS_TO_SIZE (ALIGN_MAX) - BITS_TO_SIZE (oa)));
   }
 }
 

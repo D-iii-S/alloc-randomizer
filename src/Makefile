@@ -5,10 +5,10 @@
 MAKEFLAGS += --no-builtin-rules --no-builtin-variables
 
 CC = g++
-CC_OPTS_EX = -O2 -Wall -Werror
+CC_OPTS_EX = -O0 -g -Wall -Werror
 CC_OPTS_SO = -fpic -O2 -Wall -Werror
 LD = g++
-LD_OPTS_EX = -lboost_unit_test_framework -lpthread -ldl
+LD_OPTS_EX = -O0 -g -lboost_unit_test_framework -lpthread -ldl
 LD_OPTS_SO = -fpic -shared -lpthread -ldl
 
 BIN = ../bin
