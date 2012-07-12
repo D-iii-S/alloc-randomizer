@@ -1,4 +1,4 @@
-.PHONY:	all clean
+.PHONY:	all lib test clean
 
 # Settings
 
@@ -8,14 +8,19 @@ CC = g++
 CC_OPTS_EX = -O2 -Wall -Werror
 CC_OPTS_SO = -fpic -O2 -Wall -Werror
 LD = g++
-LD_OPTS_EX = -lpthread
+LD_OPTS_EX = -lboost_unit_test_framework -lpthread -ldl
 LD_OPTS_SO = -fpic -shared -lpthread -ldl
 
 BIN = ../bin
 
 # Targets
 
-all: $(BIN)/alloc-randomizer.so
+all: lib test
+
+lib: $(BIN)/alloc-randomizer.so
+
+test: $(BIN)/test-application
+	$(BIN)/test-application
 
 clean:
 	rm -f *.o
@@ -37,6 +42,9 @@ DD = $(DD_SO) $(DD_EX)
 
 $(OO_SO): %.o: %.c
 	$(CC) $(CC_OPTS_SO) -c -o $@ $<
+
+$(OO_EX): %.o: %.c
+	$(CC) $(CC_OPTS_EX) -c -o $@ $<
 
 # Executables
 

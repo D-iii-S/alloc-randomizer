@@ -32,21 +32,24 @@ limitations under the License.
 //---------------------------------------------------------------
 // Test Initialization
 
-bool init_unit_test ()
+struct global_fixture
 {
-  // Enforce library initialization.
-  free (NULL);
-
-  return (true);
-}
+  global_fixture ()
+  {
+    // Force library initialization if it did not happen yet.
+    // All allocation functions perform initialization.
+    // Hence we just do something innocent.
+    free (NULL);
+  }
+};
 
 
 //---------------------------------------------------------------
 // Reserve Calculation Tests
 
-BOOST_AUTO_TEST_SUITE (calculate_reserve)
+BOOST_AUTO_TEST_SUITE (calculate_reserve_test)
 
-BOOST_AUTO_TEST_CASE (calculate_reserve_align)
+BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
 {
   // We do not care about randomness for now.
   set_random_bits (0);
@@ -100,7 +103,7 @@ void *workload_thread (void *dummy)
   return (NULL);
 }
 
-int thread_test (void)
+void thread_test (void)
 {
   pthread_t thread_one;
   pthread_t thread_two;
