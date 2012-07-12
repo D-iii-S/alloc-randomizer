@@ -223,7 +223,7 @@ size_t calculate_reserve (uintptr_t original_align_mask_out)
   size_t random_offset = rand (random_bits) & align_mask_out;
 
   // Minimum reserve is one pointer to original block start.
-  size_t reserve = MAX (sizeof (void *), align_offset + random_offset);
+  size_t reserve = MAX (sizeof (void *), align_offset) + random_offset;
 
   return (reserve);
 }

@@ -9,6 +9,7 @@ do
   OUTPUT="sysbench-vanilla/result-${I:?}.txt"
   if [[ ! -f ${OUTPUT:?} ]]
   then
+    echo -en "... vanilla \r"
     mkdir -p $(dirname ${OUTPUT:?})
     ${BENCHMARK:?} > ${OUTPUT:?}
   fi
@@ -19,6 +20,7 @@ do
       OUTPUT="sysbench-randomized-${AB:?}-${RB:?}/result-${I:?}.txt"
       if [[ ! -f ${OUTPUT:?} ]]
       then
+        echo -en "... align ${AB:?} random ${RB} \r"
         mkdir -p $(dirname ${OUTPUT:?})
         AR_ALIGN_BITS=${AB:?} AR_RANDOM_BITS=${RB:?} LD_PRELOAD=alloc-randomizer.so ${BENCHMARK:?} > ${OUTPUT:?}
       fi

@@ -29,8 +29,18 @@ limitations under the License.
 #include <boost/test/unit_test.hpp>
 
 
+/// How many times the tests repeat when the outcome involves random numbers.
+#define RANDOM_TEST_CYCLES 1024
+
+/// Maximum reasonable align bit count to test for.
+#define ALIGN_MAX 16
+/// Maximum reasonable random bit count to test for.
+#define RANDOM_MAX 16
+
+
 //---------------------------------------------------------------
 // Test Initialization
+
 
 struct global_fixture
 {
@@ -47,13 +57,12 @@ struct global_fixture
 //---------------------------------------------------------------
 // Reserve Calculation Tests
 
-BOOST_AUTO_TEST_SUITE (calculate_reserve_test)
 
-#define ALIGN_MAX 16
+BOOST_AUTO_TEST_SUITE (calculate_reserve_test)
 
 BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
 {
-  // We do not care about randomness for now.
+  // We do not care about randomization for now.
   set_random_bits (0);
 
   // If no alignment is required, no reserve should be needed regardless of original alignment.
@@ -80,11 +89,82 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
   }
 }
 
+BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
+{
+  // Alignment should mask randomization.
+  for (int xb = 0 ; xb <= RANDOM_MAX ; xb ++)
+  {
+    set_align_bits (xb);
+    set_random_bits (xb);
+    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (0)), MAX (sizeof (void *), BITS_TO_SIZE (xb) - 1));
+  }
+
+  // For any randomization, we should not see too large offsets.
+  // The test outcome depends on random number generation.
+  // Spurious false negatives are possible.
+  set_align_bits (0);
+  for (int rb = 0 ; rb <= RANDOM_MAX ; rb ++)
+  {
+    set_random_bits (rb);
+    for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
+    {
+      BOOST_CHECK_LT (calculate_reserve (BITS_TO_MASK_OUT (0)), BITS_TO_SIZE (rb) + sizeof (void *));
+    }
+  }
+
+  // For any randomization, we should not observe too many equal values.
+  // The test outcome depends on random number generation.
+  // Spurious false positives are possible.
+  set_align_bits (0);
+  for (int rb = 1 ; rb <= RANDOM_MAX ; rb ++)
+  {
+    set_random_bits (rb);
+    size_t first_offset = calculate_reserve (BITS_TO_MASK_OUT (0));
+    bool different = false;
+    for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
+    {
+      if (calculate_reserve (BITS_TO_MASK_OUT (0) != first_offset))
+      {
+        different = true;
+        break;
+      }
+    }
+    BOOST_CHECK (different);
+  }
+}
+
+BOOST_AUTO_TEST_SUITE_END ()
+
+
+//---------------------------------------------------------------
+// Malloc And Free Tests
+
+
+BOOST_AUTO_TEST_SUITE (malloc_free_test)
+
+BOOST_AUTO_TEST_CASE (malloc_free_align_test)
+{
+  // We do not care about randomness for now.
+  set_random_bits (0);
+
+  // Every allocated block should be aligned.
+  for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
+  {
+    for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
+    {
+      void *block = malloc (rand (ab));
+      BOOST_CHECK_EQUAL ((uintptr_t) block & BITS_TO_MASK_IN (ab), 0);
+      free (block);
+    }
+  }
+}
+
 BOOST_AUTO_TEST_SUITE_END ()
 
 
 //---------------------------------------------------------------
 // Multiple Thread Tests
+
 
 #define BLOCKS_PER_CYCLE 1000
 #define CYCLES_PER_THREAD 1000
