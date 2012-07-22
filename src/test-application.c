@@ -214,6 +214,7 @@ void *workload_thread (void *dummy)
     {
       BOOST_CHECK (!MASKED_POINTER (block [blocks], BITS_TO_MASK_IN (ALIGN_MAX / 2)));
     }
+    SPIN_UNLOCK (test_lock);
     for (int block = 0 ; block < BLOCKS_PER_CYCLE ; block ++)
     {
       free (blocks [block]);
