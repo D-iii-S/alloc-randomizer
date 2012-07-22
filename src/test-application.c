@@ -194,6 +194,12 @@ BOOST_AUTO_TEST_SUITE_END ()
 #define BLOCKS_PER_CYCLE 1000
 #define CYCLES_PER_THREAD 1000
 
+BOOST_AUTO_TEST_SUITE (thread_test)
+
+/// The test library does not support threads.
+/// I wonder if this helps.
+static volatile bool test_lock = false;
+
 void *workload_thread (void *dummy)
 {
   void *blocks [BLOCKS_PER_CYCLE];
@@ -202,6 +208,11 @@ void *workload_thread (void *dummy)
     for (int block = 0 ; block < BLOCKS_PER_CYCLE ; block ++)
     {
       blocks [block] = malloc (rand (8));
+    }
+    SPIN_LOCK (test_lock);
+    for (int block = 0 ; block < BLOCKS_PER_CYCLE ; block ++)
+    {
+      BOOST_CHECK (!MASKED_POINTER (block [blocks], BITS_TO_MASK_IN (ALIGN_MAX / 2)));
     }
     for (int block = 0 ; block < BLOCKS_PER_CYCLE ; block ++)
     {
@@ -212,13 +223,18 @@ void *workload_thread (void *dummy)
   return (NULL);
 }
 
-void thread_test (void)
+BOOST_AUTO_TEST_CASE (thread_align_test)
 {
   pthread_t thread_one;
   pthread_t thread_two;
+
+  set_align_bits (ALIGN_MAX / 2);
+  set_random_bits (RANDOM_MAX);
   
   pthread_create (&thread_one, NULL, workload_thread, NULL);
   pthread_create (&thread_two, NULL, workload_thread, NULL);
   pthread_join (thread_one, NULL);
   pthread_join (thread_two, NULL);
 }
+
+BOOST_AUTO_TEST_SUITE_END ()
