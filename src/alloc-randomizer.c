@@ -202,7 +202,7 @@ static inline void *backup_malloc (size_t size)
 
 
 /// Block header used by the backup allocator.
-struct block_header
+struct block_header_t
 {
   /// Original block address before alignment and randomization.
   void *origin;
@@ -240,7 +240,7 @@ size_t calculate_reserve (uintptr_t original_align_mask_out)
 {
   // Part one, reserve for block header.
   // Calculated as minimum aligned size sufficient to hold the header.
-  size_t reserve_block_header = (sizeof (block_header) + align_size - 1) & align_mask_out;
+  size_t reserve_block_header = (sizeof (block_header_t) + align_size - 1) & align_mask_out;
 
   // Part two, reserve for alignment.
   // Calculated as maximum difference between alignments.
@@ -270,8 +270,8 @@ extern "C" void *realloc (void *ptr, size_t size)
   // Allocate extra space, enough for header and random sized block.
   size_t offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
   size_t size_changed = size + offset;
-  void **ptr_header = (void **) ptr - 1;
-  void *ptr_original = (*ptr_header);
+  block_header_t *ptr_header = (block_header_t *) ptr - 1;
+  void *ptr_original = ptr_header->origin;
   void *block_original = (*original_realloc) (ptr_original, size_changed);
   
   // Out of memory conditions are not handled gracefully.
@@ -279,8 +279,8 @@ extern "C" void *realloc (void *ptr, size_t size)
   
   // Fill the header before shifted and aligned position and return that position.
   void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
-  void **block_header = (void **) block_shifted - 1;
-  (*block_header) = block_original;
+  block_header_t *block_header = (block_header_t *) block_shifted - 1;
+  block_header->origin = block_original;
 
   return (block_shifted);
 }
@@ -326,9 +326,9 @@ extern "C" void *malloc (size_t size)
   
   // Fill the header before shifted and aligned position and return that position.
   void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
-  void **block_header = (void **) block_shifted - 1;
+  block_header_t *block_header = (block_header_t *) block_shifted - 1;
   assert (block_header >= block_original);
-  (*block_header) = block_original;
+  block_header->origin = block_original;
 
   return (block_shifted);
 }
@@ -344,8 +344,8 @@ extern "C" void free (void *ptr)
   // We never free backup pointers.
   if (backup_pointer (ptr)) return;  
 
-  void **ptr_header = (void **) ptr - 1;
-  void *ptr_original = (*ptr_header);
+  block_header_t *ptr_header = (block_header_t *) ptr - 1;
+  void *ptr_original = ptr_header->origin;
   assert (ptr_header >= ptr_original);
   (*original_free) (ptr_original);
 }
