@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 #include <dlfcn.h>
+#include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -30,6 +31,8 @@ limitations under the License.
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define MAX(a,b) ((a) > (b) ? (a) : (b))
+
+#define MASKED_POINTER(p,m) ((typeof (p)) (((uintptr_t) (p)) & (m)))
 
 #define BITS_TO_SIZE(x) (1u << (x))
 #define BITS_TO_MASK_IN(x) ((1u << (x)) - 1u)
@@ -47,6 +50,7 @@ limitations under the License.
 /// Setting this too low increases space overhead.
 /// Setting this too high breaks alignment functionality.
 #define MALLOC_ALIGN_BITS 4
+#define MALLOC_ALIGN_MASK_IN BITS_TO_MASK_IN (MALLOC_ALIGN_BITS)
 #define MALLOC_ALIGN_MASK_OUT BITS_TO_MASK_OUT (MALLOC_ALIGN_BITS)
 
 
@@ -77,8 +81,10 @@ static inline uint_fast32_t rand (int bits)
 
 /// Address alignment, expressed as number of bits.
 static volatile unsigned int align_bits = 0;
+static volatile size_t align_size = BITS_TO_SIZE (0);
 static volatile uintptr_t align_mask_in = BITS_TO_MASK_IN (0);
 static volatile uintptr_t align_mask_out = BITS_TO_MASK_OUT (0);
+
 /// Address randomization, expressed as number of bits.
 static volatile unsigned int random_bits = 0;
 
@@ -90,6 +96,7 @@ static volatile unsigned int random_bits = 0;
 static void set_align_bits (unsigned int ab)
 {
   align_bits = ab;
+  align_size = BITS_TO_SIZE (ab);
   align_mask_in = BITS_TO_MASK_IN (ab);
   align_mask_out = BITS_TO_MASK_OUT (ab);
 }
@@ -163,6 +170,7 @@ void intercept_functions ()
 /// Pick any reasonable value and the code should adjust.
 #define BACKUP_ALIGN_BITS MALLOC_ALIGN_BITS
 #define BACKUP_ALIGN_SIZE BITS_TO_SIZE (BACKUP_ALIGN_BITS)
+#define BACKUP_ALIGN_MASK_IN BITS_TO_MASK_IN (BACKUP_ALIGN_BITS)
 #define BACKUP_ALIGN_MASK_OUT BITS_TO_MASK_OUT (BACKUP_ALIGN_BITS)
 
 static char backup_heap [BACKUP_SIZE] __attribute__ ((aligned (BACKUP_ALIGN_SIZE)));
@@ -178,9 +186,10 @@ static inline bool backup_pointer (void *ptr)
 
 static inline void *backup_malloc (size_t size)
 {
+  size_t size_aligned = (size + BACKUP_ALIGN_SIZE - 1) & BACKUP_ALIGN_MASK_OUT;
   SPIN_LOCK (backup_lock);
   void *block = backup_last;
-  backup_last += size;
+  backup_last += size_aligned;
   if (!backup_pointer (backup_last)) _exit (1);
   SPIN_UNLOCK (backup_lock);
   
@@ -190,6 +199,14 @@ static inline void *backup_malloc (size_t size)
 
 //---------------------------------------------------------------
 // Wrapper Allocator
+
+
+/// Block header used by the backup allocator.
+struct block_header
+{
+  /// Original block address before alignment and randomization.
+  void *origin;
+};
 
 
 static volatile bool initialized = false;
@@ -212,18 +229,29 @@ static void initialize (void)
 }
 
 
+/** Calculates the additional space that has to be allocated by the wrapper.
+ *
+ * The additional space consists of three parts.
+ * 1. Reserve for block header.
+ * 2. Reserve for alignment.
+ * 3. Randomization.
+ */
 size_t calculate_reserve (uintptr_t original_align_mask_out)
 {
-  // One part of reserve space is due to alignment.
-  // That is calculated as worst possible difference between original alignment and required alignment.
-  size_t align_offset = align_mask_in & original_align_mask_out;
+  // Part one, reserve for block header.
+  // Calculated as minimum aligned size sufficient to hold the header.
+  size_t reserve_block_header = (sizeof (block_header) + align_size - 1) & align_mask_out;
 
-  // One part of reserve space is due to randomization.
-  // That is calculated as random offset with alignment.
-  size_t random_offset = rand (random_bits) & align_mask_out;
+  // Part two, reserve for alignment.
+  // Calculated as maximum difference between alignments.
+  size_t reserve_alignment = align_mask_in & original_align_mask_out;
 
-  // Minimum reserve is one pointer to original block start.
-  size_t reserve = MAX (sizeof (void *), align_offset) + random_offset;
+  // Part three, randomization.
+  // Calculated as random offset with alignment.
+  size_t reserve_random = rand (random_bits) & align_mask_out;
+
+  // Reserve for block header and reserve for alignment can overlap.
+  size_t reserve = MAX (reserve_block_header, reserve_alignment) + reserve_random;
 
   return (reserve);
 }
@@ -249,8 +277,8 @@ extern "C" void *realloc (void *ptr, size_t size)
   // Out of memory conditions are not handled gracefully.
   if (block_original == NULL) _exit (1);
   
-  // Fill the header and return shifted position.
-  void *block_shifted = (char *) block_original + offset;
+  // Fill the header before shifted and aligned position and return that position.
+  void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
   void **block_header = (void **) block_shifted - 1;
   (*block_header) = block_original;
 
@@ -283,20 +311,23 @@ extern "C" void *malloc (size_t size)
     offset = calculate_reserve (BACKUP_ALIGN_MASK_OUT);
     size_t size_changed = size + offset;
     block_original = backup_malloc (size_changed);
+    assert (!MASKED_POINTER (block_original, BACKUP_ALIGN_MASK_IN));
   }
   else
   {
     offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
     size_t size_changed = size + offset;
     block_original = (*original_malloc) (size_changed);
+    assert (!MASKED_POINTER (block_original, MALLOC_ALIGN_MASK_IN));
   }
-  
+
   // Out of memory conditions are not handled gracefully.
   if (block_original == NULL) _exit (1);
   
-  // Fill the header and return shifted position.
-  void *block_shifted = (char *) block_original + offset;
+  // Fill the header before shifted and aligned position and return that position.
+  void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
   void **block_header = (void **) block_shifted - 1;
+  assert (block_header >= block_original);
   (*block_header) = block_original;
 
   return (block_shifted);
@@ -315,5 +346,6 @@ extern "C" void free (void *ptr)
 
   void **ptr_header = (void **) ptr - 1;
   void *ptr_original = (*ptr_header);
+  assert (ptr_header >= ptr_original);
   (*original_free) (ptr_original);
 }

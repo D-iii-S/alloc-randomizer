@@ -38,6 +38,12 @@ limitations under the License.
 #define RANDOM_MAX 16
 
 
+/// Size aligned to given number of bits.
+/// Not suitable when speed is an issue since
+/// some values can be calculated ahead of time.
+#define ALIGNED_SIZE(s,x) (((s) + BITS_TO_SIZE (x) - 1) & BITS_TO_MASK_OUT (x))
+
+
 //---------------------------------------------------------------
 // Test Initialization
 
@@ -69,23 +75,35 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
   set_align_bits (0);
   for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
   {
-    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (oa)), sizeof (void *));
+    BOOST_CHECK_EQUAL (
+      calculate_reserve (BITS_TO_MASK_OUT (oa)),
+      sizeof (block_header));
   }
 
   // If some alignment is required and no original alignment is guaranteed,
-  // reserve one byte smaller than the alignment block is needed.
+  // reserve one byte smaller than the alignment block
+  // or equal to the aligned block header is needed.
   for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
   {
     set_align_bits (ab);
-    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (0)), MAX (sizeof (void *), BITS_TO_SIZE (ab) - 1));
+    BOOST_CHECK_EQUAL (
+      calculate_reserve (BITS_TO_MASK_OUT (0)),
+      MAX (
+        ALIGNED_SIZE (sizeof (block_header), ab),
+        BITS_TO_SIZE (ab) - 1));
   }
 
   // If some alignment is required and some original alignment is guaranteed,
-  // reserve one original alignment block smaller than the alignment block is needed.
+  // reserve one original alignment block smaller than the alignment block
+  // or equal to the aligned block header is needed.
   set_align_bits (ALIGN_MAX);
   for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
   {
-    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (oa)), MAX (sizeof (void *), BITS_TO_SIZE (ALIGN_MAX) - BITS_TO_SIZE (oa)));
+    BOOST_CHECK_EQUAL (
+      calculate_reserve (BITS_TO_MASK_OUT (oa)),
+      MAX (
+        ALIGNED_SIZE (sizeof (block_header), ALIGN_MAX),
+        BITS_TO_SIZE (ALIGN_MAX) - BITS_TO_SIZE (oa)));
   }
 }
 
@@ -96,7 +114,11 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
   {
     set_align_bits (xb);
     set_random_bits (xb);
-    BOOST_CHECK_EQUAL (calculate_reserve (BITS_TO_MASK_OUT (0)), MAX (sizeof (void *), BITS_TO_SIZE (xb) - 1));
+    BOOST_CHECK_EQUAL (
+      calculate_reserve (BITS_TO_MASK_OUT (0)),
+      MAX (
+        ALIGNED_SIZE (sizeof (block_header), xb),
+        BITS_TO_SIZE (xb) - 1));
   }
 
   // For any randomization, we should not see too large offsets.
@@ -108,7 +130,9 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
     set_random_bits (rb);
     for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
     {
-      BOOST_CHECK_LT (calculate_reserve (BITS_TO_MASK_OUT (0)), BITS_TO_SIZE (rb) + sizeof (void *));
+      BOOST_CHECK_LT (
+        calculate_reserve (BITS_TO_MASK_OUT (0)),
+        BITS_TO_SIZE (rb) + sizeof (block_header));
     }
   }
 
@@ -150,10 +174,11 @@ BOOST_AUTO_TEST_CASE (malloc_free_align_test)
   // Every allocated block should be aligned.
   for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
   {
+    set_align_bits (ab);
     for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
     {
       void *block = malloc (rand (ab));
-      BOOST_CHECK_EQUAL ((uintptr_t) block & BITS_TO_MASK_IN (ab), 0);
+      BOOST_CHECK (!MASKED_POINTER (block, BITS_TO_MASK_IN (ab)));
       free (block);
     }
   }
