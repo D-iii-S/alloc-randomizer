@@ -77,7 +77,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
   {
     BOOST_CHECK_EQUAL (
       calculate_reserve (BITS_TO_MASK_OUT (oa)),
-      sizeof (block_header));
+      sizeof (block_header_t));
   }
 
   // If some alignment is required and no original alignment is guaranteed,
@@ -89,7 +89,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
     BOOST_CHECK_EQUAL (
       calculate_reserve (BITS_TO_MASK_OUT (0)),
       MAX (
-        ALIGNED_SIZE (sizeof (block_header), ab),
+        ALIGNED_SIZE (sizeof (block_header_t), ab),
         BITS_TO_SIZE (ab) - 1));
   }
 
@@ -102,7 +102,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
     BOOST_CHECK_EQUAL (
       calculate_reserve (BITS_TO_MASK_OUT (oa)),
       MAX (
-        ALIGNED_SIZE (sizeof (block_header), ALIGN_MAX),
+        ALIGNED_SIZE (sizeof (block_header_t), ALIGN_MAX),
         BITS_TO_SIZE (ALIGN_MAX) - BITS_TO_SIZE (oa)));
   }
 }
@@ -117,7 +117,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
     BOOST_CHECK_EQUAL (
       calculate_reserve (BITS_TO_MASK_OUT (0)),
       MAX (
-        ALIGNED_SIZE (sizeof (block_header), xb),
+        ALIGNED_SIZE (sizeof (block_header_t), xb),
         BITS_TO_SIZE (xb) - 1));
   }
 
@@ -132,7 +132,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
     {
       BOOST_CHECK_LT (
         calculate_reserve (BITS_TO_MASK_OUT (0)),
-        BITS_TO_SIZE (rb) + sizeof (block_header));
+        BITS_TO_SIZE (rb) + sizeof (block_header_t));
     }
   }
 

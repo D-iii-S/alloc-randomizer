@@ -11,3 +11,5 @@
 // To be able to free the block, we allocate one extra pointer.
 // It is stored just before the returned pointer and
 // contains the true address of the block.
+
+Does not intercept calls to posix_memalign and memalign and valloc ...

@@ -205,7 +205,9 @@ static inline void *backup_malloc (size_t size)
 struct block_header_t
 {
   /// Original block address before alignment and randomization.
-  void *origin;
+  void *address;
+  /// Original block size before alignment and randomization.
+  size_t size;
 };
 
 
@@ -257,66 +259,56 @@ size_t calculate_reserve (uintptr_t original_align_mask_out)
 }
 
 
-extern "C" void *realloc (void *ptr, size_t size)
+extern "C" void *realloc (void *source_address, size_t destination_size)
 {
-  if (!initialized) initialize ();
+  // The functions called from here take care of initialization and alignment and randomization.
 
-  // Calling realloc with null pointer is allowed.  
-  if (ptr == NULL) return (malloc (size));
-
-  // We never realloc backup pointers.
-  if (backup_pointer (ptr)) _exit (1);
-
-  // Allocate extra space, enough for header and random sized block.
-  size_t offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
-  size_t size_changed = size + offset;
-  block_header_t *ptr_header = (block_header_t *) ptr - 1;
-  void *ptr_original = ptr_header->origin;
-  void *block_original = (*original_realloc) (ptr_original, size_changed);
+  // Resizing the block while preserving data, alignment and randomization is difficult.
+  // We therefore simply always allocate a new one and copy the data.
+  block_header_t *source_header = (block_header_t *) source_address - 1;
+  size_t source_size = source_header->size;
   
-  // Out of memory conditions are not handled gracefully.
-  if (block_original == NULL) _exit (1);
-  
-  // Fill the header before shifted and aligned position and return that position.
-  void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
-  block_header_t *block_header = (block_header_t *) block_shifted - 1;
-  block_header->origin = block_original;
+  void *destination_address = malloc (destination_size);
+  memcpy (destination_address, source_address, MIN (source_size, destination_size));
+  free (source_address);
 
-  return (block_shifted);
+  return (destination_address);
 }
 
 
-extern "C" void *calloc (size_t nmemb, size_t size)
+extern "C" void *calloc (size_t item_count, size_t item_size)
 {
-  // We call malloc wrapper here which takes care of initialization and randomization.
-  size_t size_total = nmemb * size;
-  void *block = malloc (size_total);
-  memset (block, 0, size_total);
+  // The functions called from here take care of initialization and alignment and randomization.
+
+  size_t total_size = item_count * item_size;
+  void *block_address = malloc (total_size);
+  memset (block_address, 0, total_size);
   
-  return (block);
+  return (block_address);
 }
 
 
-extern "C" void *malloc (size_t size)
+extern "C" void *malloc (size_t size_original)
 {
   // The wrapper can handle backup allocation while initializing.
   if (!initialized && !initializing) initialize ();
 
   // Allocate extra space, enough for header and random sized block.
   // Some parameters depend on whether this is backup allocation.
-  size_t offset;
+  size_t size_changed;
+  size_t reserve;
   void *block_original;
   if (initializing)
   {
-    offset = calculate_reserve (BACKUP_ALIGN_MASK_OUT);
-    size_t size_changed = size + offset;
+    reserve = calculate_reserve (BACKUP_ALIGN_MASK_OUT);
+    size_changed = size_original + reserve;
     block_original = backup_malloc (size_changed);
     assert (!MASKED_POINTER (block_original, BACKUP_ALIGN_MASK_IN));
   }
   else
   {
-    offset = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
-    size_t size_changed = size + offset;
+    reserve = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
+    size_changed = size_original + reserve;
     block_original = (*original_malloc) (size_changed);
     assert (!MASKED_POINTER (block_original, MALLOC_ALIGN_MASK_IN));
   }
@@ -325,27 +317,31 @@ extern "C" void *malloc (size_t size)
   if (block_original == NULL) _exit (1);
   
   // Fill the header before shifted and aligned position and return that position.
-  void *block_shifted = MASKED_POINTER ((char *) block_original + offset, align_mask_out);
+  void *block_shifted = MASKED_POINTER ((char *) block_original + reserve, align_mask_out);
+  assert (block_shifted >= block_original);
+  assert ((char *) block_shifted + size_original <= (char *) block_original + size_changed);
   block_header_t *block_header = (block_header_t *) block_shifted - 1;
   assert (block_header >= block_original);
-  block_header->origin = block_original;
+  block_header->address = block_original;
+  block_header->size = size_original;
 
   return (block_shifted);
 }
 
 
-extern "C" void free (void *ptr)
+extern "C" void free (void *block_shifted)
 {
   if (!initialized) initialize ();
 
   // It is legal to free null pointers.
-  if (ptr == NULL) return;
+  if (block_shifted == NULL) return;
 
   // We never free backup pointers.
-  if (backup_pointer (ptr)) return;  
+  if (backup_pointer (block_shifted)) return;
 
-  block_header_t *ptr_header = (block_header_t *) ptr - 1;
-  void *ptr_original = ptr_header->origin;
-  assert (ptr_header >= ptr_original);
-  (*original_free) (ptr_original);
+  // Free the original block.
+  block_header_t *block_header = (block_header_t *) block_shifted - 1;
+  void *block_original = block_header->address;
+  assert (block_header >= block_original);
+  (*original_free) (block_original);
 }
