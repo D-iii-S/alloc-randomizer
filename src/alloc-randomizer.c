@@ -34,8 +34,8 @@ limitations under the License.
 
 #define MASKED_POINTER(p,m) ((typeof (p)) (((uintptr_t) (p)) & (m)))
 
-#define BITS_TO_SIZE(x) (1u << (x))
-#define BITS_TO_MASK_IN(x) ((1u << (x)) - 1u)
+#define BITS_TO_SIZE(x) (((size_t) 1) << (x))
+#define BITS_TO_MASK_IN(x) ((((uintptr_t) 1) << (x)) - ((uintptr_t) 1))
 #define BITS_TO_MASK_OUT(x) (~ BITS_TO_MASK_IN(x))
 
 #define SPIN_LOCK(x) { while (!__sync_bool_compare_and_swap (&(x), false, true)) { }; }
@@ -263,6 +263,9 @@ extern "C" void *realloc (void *source_address, size_t destination_size)
 {
   // The functions called from here take care of initialization and alignment and randomization.
 
+  // It is legal to resize null pointers.
+  if (!source_address) return (malloc (destination_size));
+
   // Resizing the block while preserving data, alignment and randomization is difficult.
   // We therefore simply always allocate a new one and copy the data.
   block_header_t *source_header = (block_header_t *) source_address - 1;
@@ -314,7 +317,7 @@ extern "C" void *malloc (size_t size_original)
   }
 
   // Out of memory conditions are not handled gracefully.
-  if (block_original == NULL) _exit (1);
+  if (!block_original) _exit (1);
   
   // Fill the header before shifted and aligned position and return that position.
   void *block_shifted = MASKED_POINTER ((char *) block_original + reserve, align_mask_out);
@@ -334,7 +337,7 @@ extern "C" void free (void *block_shifted)
   if (!initialized) initialize ();
 
   // It is legal to free null pointers.
-  if (block_shifted == NULL) return;
+  if (!block_shifted) return;
 
   // We never free backup pointers.
   if (backup_pointer (block_shifted)) return;
