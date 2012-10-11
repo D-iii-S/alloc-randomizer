@@ -43,6 +43,9 @@ limitations under the License.
 /// some values can be calculated ahead of time.
 #define ALIGNED_SIZE(s,x) (((s) + BITS_TO_SIZE (x) - 1) & BITS_TO_MASK_OUT (x))
 
+/// Unsigned difference that does not go below zero.
+#define UNSIGNED_DIFFERENCE(a,b) (((a) > (b)) ? ((a) - (b)) : 0)
+
 
 //---------------------------------------------------------------
 // Test Initialization
@@ -64,50 +67,28 @@ struct global_fixture
 // Reserve Calculation Tests
 
 
-BOOST_AUTO_TEST_SUITE (calculate_reserve_test)
+BOOST_AUTO_TEST_SUITE (calculate_heap_reserve_test)
 
-BOOST_AUTO_TEST_CASE (calculate_reserve_align_test)
+BOOST_AUTO_TEST_CASE (calculate_heap_reserve_align_test)
 {
   // We do not care about randomization for now.
   set_random_bits (0);
 
-  // If no alignment is required, no reserve should be needed regardless of original alignment.
-  set_align_bits (0);
-  for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
-  {
-    BOOST_CHECK_EQUAL (
-      calculate_reserve (BITS_TO_MASK_OUT (oa)),
-      sizeof (block_header_t));
-  }
-
-  // If some alignment is required and no original alignment is guaranteed,
-  // reserve one byte smaller than the alignment block
+  // If some alignment is required and some original alignment is guaranteed,
+  // reserve one original alignment block smaller than the alignment block
   // or equal to the aligned block header is needed.
   for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
   {
     set_align_bits (ab);
     BOOST_CHECK_EQUAL (
-      calculate_reserve (BITS_TO_MASK_OUT (0)),
+      calculate_heap_reserve (),
       MAX (
         ALIGNED_SIZE (sizeof (block_header_t), ab),
-        BITS_TO_SIZE (ab) - 1));
-  }
-
-  // If some alignment is required and some original alignment is guaranteed,
-  // reserve one original alignment block smaller than the alignment block
-  // or equal to the aligned block header is needed.
-  set_align_bits (ALIGN_MAX);
-  for (int oa = 0 ; oa <= ALIGN_MAX ; oa ++)
-  {
-    BOOST_CHECK_EQUAL (
-      calculate_reserve (BITS_TO_MASK_OUT (oa)),
-      MAX (
-        ALIGNED_SIZE (sizeof (block_header_t), ALIGN_MAX),
-        BITS_TO_SIZE (ALIGN_MAX) - BITS_TO_SIZE (oa)));
+        UNSIGNED_DIFFERENCE (BITS_TO_SIZE (ab), MALLOC_ALIGN_SIZE)));
   }
 }
 
-BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
+BOOST_AUTO_TEST_CASE (calculate_heap_reserve_random_test)
 {
   // Alignment should mask randomization.
   for (int xb = 0 ; xb <= RANDOM_MAX ; xb ++)
@@ -115,7 +96,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
     set_align_bits (xb);
     set_random_bits (xb);
     BOOST_CHECK_EQUAL (
-      calculate_reserve (BITS_TO_MASK_OUT (0)),
+      calculate_heap_reserve (),
       MAX (
         ALIGNED_SIZE (sizeof (block_header_t), xb),
         BITS_TO_SIZE (xb) - 1));
@@ -131,7 +112,7 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
     for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
     {
       BOOST_CHECK_LT (
-        calculate_reserve (BITS_TO_MASK_OUT (0)),
+        calculate_heap_reserve (),
         BITS_TO_SIZE (rb) + sizeof (block_header_t));
     }
   }
@@ -143,11 +124,11 @@ BOOST_AUTO_TEST_CASE (calculate_reserve_random_test)
   for (int rb = 1 ; rb <= RANDOM_MAX ; rb ++)
   {
     set_random_bits (rb);
-    size_t first_offset = calculate_reserve (BITS_TO_MASK_OUT (0));
+    size_t first_offset = calculate_heap_reserve ();
     bool different = false;
     for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
     {
-      if (calculate_reserve (BITS_TO_MASK_OUT (0) != first_offset))
+      if (calculate_heap_reserve () != first_offset)
       {
         different = true;
         break;
@@ -200,7 +181,7 @@ BOOST_AUTO_TEST_SUITE (thread_test)
 /// I wonder if this helps.
 static volatile bool test_lock = false;
 
-void *workload_thread (void *dummy)
+void *workload_thread (void *)
 {
   void *blocks [BLOCKS_PER_CYCLE];
   for (int cycle = 0 ; cycle < CYCLES_PER_THREAD ; cycle ++)

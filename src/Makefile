@@ -1,12 +1,12 @@
-.PHONY:	all lib test clean
+.PHONY:	all app lib test clean
 
 # Settings
 
 MAKEFLAGS += --no-builtin-rules --no-builtin-variables
 
 CC = g++
-CC_OPTS_EX = -O0 -g -Wall -Werror
-CC_OPTS_SO = -fpic -O2 -DNDEBUG -Wall -Werror
+CC_OPTS_EX = -O0 -g -Wall -Wextra -Werror
+CC_OPTS_SO = -fpic -O2 -DNDEBUG -Wall -Wextra -Werror
 LD = g++
 LD_OPTS_EX = -O0 -g -lboost_unit_test_framework -lpthread -ldl
 LD_OPTS_SO = -fpic -shared -lpthread -ldl
@@ -15,7 +15,9 @@ BIN = ../bin
 
 # Targets
 
-all: lib test
+all: app lib
+
+app: $(BIN)/test-application
 
 lib: $(BIN)/alloc-randomizer.so
 

@@ -17,6 +17,7 @@ limitations under the License.
 */
 
 #include <dlfcn.h>
+#include <alloca.h>
 #include <assert.h>
 #include <stdint.h>
 #include <stdlib.h>
@@ -50,8 +51,16 @@ limitations under the License.
 /// Setting this too low increases space overhead.
 /// Setting this too high breaks alignment functionality.
 #define MALLOC_ALIGN_BITS 4
+#define MALLOC_ALIGN_SIZE BITS_TO_SIZE (MALLOC_ALIGN_BITS)
 #define MALLOC_ALIGN_MASK_IN BITS_TO_MASK_IN (MALLOC_ALIGN_BITS)
 #define MALLOC_ALIGN_MASK_OUT BITS_TO_MASK_OUT (MALLOC_ALIGN_BITS)
+
+
+//---------------------------------------------------------------
+// Helpers
+
+
+static volatile void *do_not_optimize;
 
 
 //---------------------------------------------------------------
@@ -166,14 +175,8 @@ void intercept_functions ()
 /// Maximum size of the backup heap.
 /// Increase if initialization runs out of backup heap.
 #define BACKUP_SIZE 16384
-/// Alignment of the backup heap.
-/// Pick any reasonable value and the code should adjust.
-#define BACKUP_ALIGN_BITS MALLOC_ALIGN_BITS
-#define BACKUP_ALIGN_SIZE BITS_TO_SIZE (BACKUP_ALIGN_BITS)
-#define BACKUP_ALIGN_MASK_IN BITS_TO_MASK_IN (BACKUP_ALIGN_BITS)
-#define BACKUP_ALIGN_MASK_OUT BITS_TO_MASK_OUT (BACKUP_ALIGN_BITS)
 
-static char backup_heap [BACKUP_SIZE] __attribute__ ((aligned (BACKUP_ALIGN_SIZE)));
+static char backup_heap [BACKUP_SIZE] __attribute__ ((aligned (MALLOC_ALIGN_SIZE)));
 static char *backup_last = backup_heap;
 static volatile bool backup_lock = false;
 
@@ -186,7 +189,7 @@ static inline bool backup_pointer (void *ptr)
 
 static inline void *backup_malloc (size_t size)
 {
-  size_t size_aligned = (size + BACKUP_ALIGN_SIZE - 1) & BACKUP_ALIGN_MASK_OUT;
+  size_t size_aligned = (size + MALLOC_ALIGN_SIZE - 1) & MALLOC_ALIGN_MASK_OUT;
   SPIN_LOCK (backup_lock);
   void *block = backup_last;
   backup_last += size_aligned;
@@ -198,17 +201,7 @@ static inline void *backup_malloc (size_t size)
 
 
 //---------------------------------------------------------------
-// Wrapper Allocator
-
-
-/// Block header used by the backup allocator.
-struct block_header_t
-{
-  /// Original block address before alignment and randomization.
-  void *address;
-  /// Original block size before alignment and randomization.
-  size_t size;
-};
+// Wrapper Utilities
 
 
 static volatile bool initialized = false;
@@ -231,6 +224,20 @@ static void initialize (void)
 }
 
 
+//---------------------------------------------------------------
+// Heap Allocator Wrapper
+
+
+/// Block header used by the backup allocator.
+struct block_header_t
+{
+  /// Original block address before alignment and randomization.
+  void *address;
+  /// Original block size before alignment and randomization.
+  size_t size;
+};
+
+
 /** Calculates the additional space that has to be allocated by the wrapper.
  *
  * The additional space consists of three parts.
@@ -238,7 +245,7 @@ static void initialize (void)
  * 2. Reserve for alignment.
  * 3. Randomization.
  */
-size_t calculate_reserve (uintptr_t original_align_mask_out)
+static inline size_t calculate_heap_reserve (void)
 {
   // Part one, reserve for block header.
   // Calculated as minimum aligned size sufficient to hold the header.
@@ -246,13 +253,14 @@ size_t calculate_reserve (uintptr_t original_align_mask_out)
 
   // Part two, reserve for alignment.
   // Calculated as maximum difference between alignments.
-  size_t reserve_alignment = align_mask_in & original_align_mask_out;
+  size_t reserve_alignment = align_mask_in & MALLOC_ALIGN_MASK_OUT;
 
   // Part three, randomization.
   // Calculated as random offset with alignment.
   size_t reserve_random = rand (random_bits) & align_mask_out;
 
   // Reserve for block header and reserve for alignment can overlap.
+  // Otherwise the reserves add up.
   size_t reserve = MAX (reserve_block_header, reserve_alignment) + reserve_random;
 
   return (reserve);
@@ -303,14 +311,14 @@ extern "C" void *malloc (size_t size_original)
   void *block_original;
   if (initializing)
   {
-    reserve = calculate_reserve (BACKUP_ALIGN_MASK_OUT);
+    reserve = calculate_heap_reserve ();
     size_changed = size_original + reserve;
     block_original = backup_malloc (size_changed);
-    assert (!MASKED_POINTER (block_original, BACKUP_ALIGN_MASK_IN));
+    assert (!MASKED_POINTER (block_original, MALLOC_ALIGN_MASK_IN));
   }
   else
   {
-    reserve = calculate_reserve (MALLOC_ALIGN_MASK_OUT);
+    reserve = calculate_heap_reserve ();
     size_changed = size_original + reserve;
     block_original = (*original_malloc) (size_changed);
     assert (!MASKED_POINTER (block_original, MALLOC_ALIGN_MASK_IN));
@@ -347,4 +355,61 @@ extern "C" void free (void *block_shifted)
   void *block_original = block_header->address;
   assert (block_header >= block_original);
   (*original_free) (block_original);
+}
+
+
+//---------------------------------------------------------------
+// Stack Allocator Wrapper
+
+
+/// Thread information used by the thread wrapper.
+struct thread_information_t
+{
+  /// Original thread start address.
+  void * (*start_routine) (void *);
+  /// Original thread arguments.
+  void *arg;
+};
+
+
+static void *thread_wrapper (void *arg)
+{
+  // We need to free the thread information structure before calling the original thread routine.
+  // Otherwise we would leak if threads did not exit by returning from the thread routine.
+  thread_information_t *thread_information = (thread_information_t *) arg;
+  void * (*original_start_routine) (void *) = thread_information->start_routine;
+  void *original_arg = thread_information->arg;
+  delete (thread_information);
+
+  // Certain care has to be taken to avoid silently optimizing away the allocations.
+  // There are no extra tests that the allocation actually takes place.
+
+  // First allocate a random sized block on the thread stack.
+  size_t reserve = rand (random_bits) & align_mask_out;
+  void *block_last = alloca (reserve);
+  do_not_optimize = block_last;
+
+  // Now keep allocating more until the current block is aligned.
+  while (MASKED_POINTER (block_last, align_mask_in))
+  {
+    block_last = alloca (1);
+    do_not_optimize = block_last;
+  }
+
+  // Call the original thread routine.
+  return ((*original_start_routine) (original_arg));
+}
+
+
+extern "C" int pthread_create (pthread_t *thread, const pthread_attr_t *attr, void *(*start_routine) (void *), void *arg)
+{
+  if (!initialized) initialize ();
+
+  // Prepare the thread information for the thread wrapper.
+  thread_information_t *thread_information = new thread_information_t ();
+  thread_information->start_routine = start_routine;
+  thread_information->arg = arg;
+
+  // Call the thread wrapper instead of the original thread.
+  return ((*original_pthread_create) (thread, attr, thread_wrapper, thread_information));
 }
