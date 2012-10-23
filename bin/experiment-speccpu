@@ -1,0 +1,37 @@
+#!/bin/bash
+set -e
+
+ALIGN_BITS="0 1 2 3 4"
+RANDOM_BITS="6 12"
+
+BENCHMARK="runspec --loose --size=ref --action=run --iterations=1 all ^444.namd"
+
+for (( I = 0 ; I < 1024 ; I ++ ))
+do
+  echo Iteration $I
+  OUTPUT="speccpu-vanilla/result-${I:?}.txt"
+  if [[ ! -f ${OUTPUT:?} ]]
+  then
+    echo ... vanilla
+    mkdir -p $(dirname ${OUTPUT:?})
+    ${BENCHMARK:?} --comment "Randomization: Vanilla" > ${OUTPUT:?}
+  fi
+  for AB in ${ALIGN_BITS:?}
+  do
+    for RB in ${RANDOM_BITS:?}
+    do
+      OUTPUT="speccpu-randomized-${AB:?}-${RB:?}/result-${I:?}.txt"
+      if [[ ! -f ${OUTPUT:?} ]]
+      then
+        echo ... align ${AB:?} random ${RB}
+        mkdir -p $(dirname ${OUTPUT:?})
+        (
+          export AR_ALIGN_BITS=${AB:?}
+          export AR_RANDOM_BITS=${RB:?}
+          export LD_PRELOAD=alloc-randomizer.so
+          ${BENCHMARK:?} --comment "Randomization: Align ${AB:?} Random ${RB:?}" > ${OUTPUT:?}
+        )
+      fi
+    done
+  done
+done

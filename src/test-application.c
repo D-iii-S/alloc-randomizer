@@ -24,6 +24,9 @@ limitations under the License.
 #include "alloc-randomizer.c"
 
 
+#include <boost/dynamic_bitset.hpp>
+
+
 #define BOOST_TEST_MAIN
 #define BOOST_TEST_DYN_LINK
 #include <boost/test/unit_test.hpp>
@@ -153,15 +156,40 @@ BOOST_AUTO_TEST_CASE (malloc_free_align_test)
   set_random_bits (0);
 
   // Every allocated block should be aligned.
-  for (int ab = 0 ; ab <= ALIGN_MAX ; ab ++)
+  for (int ab = 1 ; ab <= ALIGN_MAX ; ab ++)
   {
     set_align_bits (ab);
     for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
     {
-      void *block = malloc (rand (ab));
+      void *block = malloc (rand (ab + 1));
       BOOST_CHECK (!MASKED_POINTER (block, BITS_TO_MASK_IN (ab)));
       free (block);
     }
+  }
+}
+
+BOOST_AUTO_TEST_CASE (malloc_free_random_test)
+{
+  // We do not care about alignment for now.
+  set_align_bits (0);
+
+  // Most random combinations should occur.
+  // We tolerate certain percentage missing.
+  for (int rb = 1 ; rb <= RANDOM_MAX ; rb ++)
+  {
+    set_random_bits (rb);
+    boost::dynamic_bitset <> observed_values (BITS_TO_SIZE (rb), false);
+    for (int i = 0 ; i < RANDOM_TEST_CYCLES ; i ++)
+    {
+      void *block = malloc (rand (rb + 1));
+      observed_values [(uintptr_t) MASKED_POINTER (block, BITS_TO_MASK_IN (rb))] = true;
+    }
+    // The threshold is above half, to catch single stuck bit, but otherwise liberal.
+    size_t different_values_ideal = MIN (RANDOM_TEST_CYCLES, BITS_TO_SIZE (rb));
+    size_t different_values_threshold = different_values_ideal * 6 / 10;
+    BOOST_CHECK_GE (
+      observed_values.count (),
+      different_values_threshold);
   }
 }
 

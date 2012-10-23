@@ -1,39 +1,64 @@
-result_vanilla <- scan("sysbench-vanilla/results.txt")
+ALIGN_BITS <- c (0, 1, 2, 3, 4)
+RANDOM_BITS <- c (6, 12)
 
-result_6_1 <- scan("sysbench-randomized-6-1/results.txt")
-result_6_2 <- scan("sysbench-randomized-6-2/results.txt")
-result_6_8 <- scan("sysbench-randomized-6-8/results.txt")
-result_6_16 <- scan("sysbench-randomized-6-16/results.txt")
+# Read input files
 
-result_12_1 <- scan("sysbench-randomized-12-1/results.txt")
-result_12_2 <- scan("sysbench-randomized-12-2/results.txt")
-result_12_8 <- scan("sysbench-randomized-12-8/results.txt")
-result_12_16 <- scan("sysbench-randomized-12-16/results.txt")
-
-do_graph <- function (name, variables)
+read_results <- function (name)
 {
-  postscript (name)
-  minimum <- NULL
-  maximum <- NULL
-  for (variable in variables)
+  results <- c ()
+  files <- list.files (name, full.names=TRUE)
+  for (file in files)
   {
-    minimum <- min (get (variable), minimum)
-    maximum <- max (get (variable), maximum)
+    lines <- readLines (file)
+    line <- grep ("Operations performed: [0-9]+ \\([0-9.]+ ops/sec\\)", lines, value=TRUE)
+    result <- as.numeric (sub (".*\\(([0-9.]+) ops/sec\\).*", "\\1", line))
+    if ((length (result) == 1) && (result > 0)) results <- c (results, result)
   }
-  limits <- c (minimum, maximum)
-  plot (result_vanilla, pch = 0, ylim = limits)
-  for (variable_index in 1:length (variables))
+  
+  return (results)
+}
+
+results_vanilla <- read_results ("sysbench-vanilla")
+
+for (align in ALIGN_BITS)
+{
+  for (random in RANDOM_BITS)
   {
-    variable = variables [variable_index]
+    name_directory = paste ("sysbench", "randomized", align, random, sep="-")
+    name_variable = paste ("results", align, random, sep="_")
+    assign (name_variable, read_results (name_directory))
+  }
+}
+
+# Plot observations
+
+plot_graph <- function (name, align_list, random)
+{
+  variable_list <- c ("results_vanilla", paste ("results", align_list, random, sep="_"))
+  length_list <- unlist (lapply (variable_list, function (x) length(get (x))))
+  horizontal_limits <- c (1, max (length_list)) 
+  value_list <- unlist (lapply (variable_list, get))
+  minimum <- min (value_list)
+  maximum <- max (value_list)
+  vertical_limits <- c (minimum, maximum)
+
+  postscript (paste (name, "ps", sep="."))
+
+  plot (c (), xlim = horizontal_limits, ylim = vertical_limits, ylab="Performance")
+  for (variable_index in 1:length (variable_list))
+  {
+    variable = variable_list [variable_index]
     points (get (variable), pch = variable_index, col = variable_index)
   }
-  legend ("bottomright", variables, pch = 1:length (variables), col = 1:length (variables))
+
+  legend (
+    "bottomright",
+    variable_list,
+    pch = 1:length (variable_list),
+    col = 1:length (variable_list))
+
   dev.off ()
 }
 
-do_graph ("results-6.ps", c ("result_6_1", "result_6_2", "result_6_8", "result_6_16"))
-do_graph ("results-12.ps", c ("result_12_1", "result_12_2", "result_12_8", "result_12_16"))
-
-postscript ("results-box.ps")
-boxplot (list (result_vanilla, result_6_1, result_6_2, result_6_8, result_6_16, result_12_1, result_12_2, result_12_8, result_12_16), ylim=c(330000, 336000))
-dev.off ()
+plot_graph ("random-cache-line", ALIGN_BITS, 6)
+plot_graph ("random-page-frame", ALIGN_BITS, 12)
