@@ -20,7 +20,12 @@ read_results <- function (name, benchmark)
 
     for (raw in raws)
     {
-      lines <- readLines (raw)
+      # Create local copies of the results for archival purposes
+      local = paste (name, basename (raw), sep="/")
+      if (!file.exists (local)) file.copy (raw, local)    
+      
+      # Always read the local copies of the results
+      lines <- readLines (local)
       key <- paste ("spec", "cpu2006", "results", benchmark, "base", "000", "reported_time", sep=".")
       line <- grep (key, lines, value=TRUE)
       result <- as.numeric (sub (".*\\.reported_time: ([0-9.]+)", "\\1", line))

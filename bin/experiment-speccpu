@@ -4,7 +4,10 @@ set -e
 ALIGN_BITS="0 1 2 3 4"
 RANDOM_BITS="6 12"
 
-BENCHMARK="runspec --loose --size=ref --action=run --iterations=1 all ^444.namd"
+# 444.namd fails to terminate under lack of alignment
+# 447.dealII runs out of memory under page randomization
+
+BENCHMARK="runspec --loose --size=ref --action=run --iterations=1 all ^444.namd ^447.dealII"
 
 for (( I = 0 ; I < 1024 ; I ++ ))
 do
