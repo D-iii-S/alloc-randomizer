@@ -39,8 +39,8 @@ limitations under the License.
 #define BITS_TO_MASK_IN(x) ((((uintptr_t) 1) << (x)) - ((uintptr_t) 1))
 #define BITS_TO_MASK_OUT(x) (~ BITS_TO_MASK_IN(x))
 
-#define SPIN_LOCK(x) { while (!__sync_bool_compare_and_swap (&(x), false, true)) { }; }
-#define SPIN_UNLOCK(x) { (x) = false; __sync_synchronize (); }
+#define SPIN_LOCK(x) { while (__sync_lock_test_and_set (&(x), 1)) { while ((x)) { }; }; }
+#define SPIN_UNLOCK(x) { __sync_lock_release (&(x)); }
 
 
 //---------------------------------------------------------------
@@ -71,16 +71,16 @@ static volatile void *do_not_optimize;
 #define RAND_SEED 1103515245u
 #define RAND_INC 12345u
 
-static volatile uint_fast32_t seed_value = 0;
-static volatile bool seed_lock = false;
+static __thread uint_fast32_t seed_value = 0;
 
+/** Return a random integer of given width.
+ *
+ * The state of the generator is thread local and therefore should not need locking.
+ */
 static inline uint_fast32_t rand (int bits)
 {
-  SPIN_LOCK (seed_lock);
   seed_value = 1103515245u * seed_value + 12345u;
-  register uint_fast32_t result = (seed_value & BITS_TO_MASK_IN (RAND_BITS)) >> (RAND_BITS - bits);
-  SPIN_UNLOCK (seed_lock);
-  return (result);
+  return ((seed_value & BITS_TO_MASK_IN (RAND_BITS)) >> (RAND_BITS - bits));
 }
 
 
