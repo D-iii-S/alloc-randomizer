@@ -16,6 +16,7 @@ limitations under the License.
 
 */
 
+#include <time.h>
 #include <dlfcn.h>
 #include <alloca.h>
 #include <assert.h>
@@ -71,7 +72,7 @@ static volatile void *do_not_optimize;
 #define RAND_SEED 1103515245u
 #define RAND_INC 12345u
 
-static __thread uint_fast32_t seed_value = 0;
+static __thread uint_fast32_t seed_value = (uint_fast32_t) time (NULL);
 
 /** Return a random integer of given width.
  *
