@@ -76,7 +76,7 @@ for (benchmark in BENCHMARKS)
       }
 
       legend (
-        "bottomright",
+        "topright",
         variable_list,
         pch = 1:length (variable_list),
         col = 1:length (variable_list))
