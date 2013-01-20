@@ -72,7 +72,8 @@ static volatile void *do_not_optimize;
 #define RAND_SEED 1103515245u
 #define RAND_INC 12345u
 
-static __thread uint_fast32_t seed_value = (uint_fast32_t) time (NULL);
+static __thread bool seed_ready;
+static __thread uint_fast32_t seed_value;
 
 /** Return a random integer of given width.
  *
@@ -80,6 +81,11 @@ static __thread uint_fast32_t seed_value = (uint_fast32_t) time (NULL);
  */
 static inline uint_fast32_t rand (int bits)
 {
+  if (__builtin_expect (!seed_ready, false))
+  {
+    seed_value = (uint_fast32_t) time (NULL);
+    seed_ready = true;
+  }
   seed_value = 1103515245u * seed_value + 12345u;
   return ((seed_value & BITS_TO_MASK_IN (RAND_BITS)) >> (RAND_BITS - bits));
 }
